@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List, Dict, Any
 
 # Classification Logic
 
@@ -27,3 +27,18 @@ class Bloodwork(BaseModel):
 class ClassifyRequest(BaseModel):
     symptoms: Symptoms
     bloodwork: Bloodwork
+
+
+# Recommendation Engine
+
+class RecommendRequest(BaseModel):
+    subtype: str  # "HA" | "OB" | "SHBG" | "LH"
+    bloodwork: Optional[Bloodwork] = None
+    coaching_context: Optional[Dict[str, Any]] = None
+
+
+class RecommendResponse(BaseModel):
+    subtype: str
+    label: str
+    care_pathway: Dict[str, List[str]]  # diet, exercise, supplements, referral_flags
+    personalized_insight: Optional[str] = None  # LLM callout; None if unavailable

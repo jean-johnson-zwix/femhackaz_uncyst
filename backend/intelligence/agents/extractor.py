@@ -2,9 +2,9 @@ import json
 import logging
 from typing import Optional
 
-from .llm import call_llm, call_llm_vision
-from .llm_config import BLOOD_REPORT_TEXT_EXTRACTION
-from .prompts import (
+from ..llm import call_llm, call_llm_vision
+from ..llm_config import BLOOD_REPORT_TEXT_EXTRACTION
+from ..prompts import (
     BLOOD_REPORT_SYSTEM,
     BLOOD_REPORT_USER_TEXT,
     BLOOD_REPORT_USER_IMAGE,

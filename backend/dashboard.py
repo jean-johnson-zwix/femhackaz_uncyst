@@ -3,6 +3,7 @@ import requests
 
 API_CLASSIFY  = "http://localhost:8000/classify"
 API_UPLOAD    = "http://localhost:8000/upload-report"
+API_RECOMMEND = "http://localhost:8000/recommend"
 
 BLOODWORK_LABELS = {
     "lh":              "LH (IU/L)",
@@ -49,7 +50,7 @@ for field in BLOODWORK_LABELS:
 
 # Upload section
 uploaded_file = st.file_uploader(
-    "Upload your blood report (PDF, JPEG, PNG, WEBP) — values will be auto-filled",
+    "Upload your blood report (PDF, JPEG, PNG, WEBP)",
     type=["pdf", "jpg", "jpeg", "png", "webp"],
 )
 
@@ -140,7 +141,57 @@ if st.button("Classify", type="primary", use_container_width=True):
             + ", ".join(f"`{f}`" for f in missing)
         )
 
-    with st.expander("Raw API response"):
+    with st.expander("Raw classification response"):
         st.json(result)
+
+    # ── Recommendations ───────────────────────────────────────────────────────
+    st.divider()
+    st.subheader("Your Personalised Care Plan")
+
+    rec_payload = {
+        "subtype": subtype,
+        "bloodwork": payload["bloodwork"],
+    }
+
+    rec_result = None
+    with st.spinner("Building your care plan…"):
+        try:
+            rec_resp = requests.post(API_RECOMMEND, json=rec_payload, timeout=30)
+            rec_resp.raise_for_status()
+            rec_result = rec_resp.json()
+        except requests.exceptions.ConnectionError:
+            st.error("Cannot reach the backend for recommendations.")
+        except Exception as e:
+            st.error(f"Recommendation request failed: {e}")
+
+    if rec_result:
+        insight = rec_result.get("personalized_insight")
+        if insight:
+            st.info(f"**Your numbers say:** {insight}")
+
+        pathway = rec_result.get("care_pathway", {})
+        tab_diet, tab_exercise, tab_supplements, tab_referrals = st.tabs([
+            "Diet", "Exercise", "Supplements", "Referrals"
+        ])
+
+        with tab_diet:
+            for item in pathway.get("diet", []):
+                st.markdown(f"- {item}")
+
+        with tab_exercise:
+            for item in pathway.get("exercise", []):
+                st.markdown(f"- {item}")
+
+        with tab_supplements:
+            st.caption("Always consult your physician before starting supplements.")
+            for item in pathway.get("supplements", []):
+                st.markdown(f"- {item}")
+
+        with tab_referrals:
+            for item in pathway.get("referral_flags", []):
+                st.markdown(f"- {item}")
+
+        with st.expander("Raw recommendation response"):
+            st.json(rec_result)
 
 st.divider()

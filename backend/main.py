@@ -1,6 +1,6 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from models import ClassifyRequest
+from models import ClassifyRequest, RecommendRequest, RecommendResponse
 from constants import SUBTYPE_LABELS
 from typing import Optional
 from dotenv import load_dotenv
@@ -163,7 +163,7 @@ async def upload_report(file: UploadFile = File(...)):
         raise HTTPException(status_code=413, detail="File too large. Maximum size is 10 MB.")
 
     try:
-        from intelligence.extractor import extract_bloodwork
+        from intelligence.agents.extractor import extract_bloodwork
         bloodwork = extract_bloodwork(file_bytes, content_type)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -178,6 +178,27 @@ async def upload_report(file: UploadFile = File(...)):
         "fields_found": list(found.keys()),
         "fields_missing": missing,
     }
+
+
+@app.post("/recommend", response_model=RecommendResponse)
+def recommend(req: RecommendRequest):
+    if req.subtype not in SUBTYPE_LABELS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown subtype '{req.subtype}'. Must be one of: HA, OB, SHBG, LH.",
+        )
+
+    from intelligence.agents.recommender import get_static_pathway, get_personalized_insight
+
+    care_pathway = get_static_pathway(req.subtype)
+    personalized_insight = get_personalized_insight(req.subtype, req.bloodwork)
+
+    return RecommendResponse(
+        subtype=req.subtype,
+        label=SUBTYPE_LABELS[req.subtype],
+        care_pathway=care_pathway,
+        personalized_insight=personalized_insight,
+    )
 
 
 @app.get("/health")
