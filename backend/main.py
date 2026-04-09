@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from models import ClassifyRequest, RecommendRequest, RecommendResponse
@@ -6,7 +7,14 @@ from typing import Optional
 from dotenv import load_dotenv
 load_dotenv()
 
-app = FastAPI(title="PCOS Classifier")
+from data.db import init_db
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    init_db()
+    yield
+
+app = FastAPI(title="PCOS Classifier", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -129,12 +137,23 @@ def classify(req: ClassifyRequest):
     else:
         confidence = "low"
 
+    # Persist to memory store if user_id provided
+    drift_detected = False
+    if req.user_id:
+        from data.db import upsert_user, add_subtype_history, add_lab_history
+        upsert_user(req.user_id, top_subtype)
+        drift_detected = add_subtype_history(req.user_id, top_subtype, confidence, scores)
+        bloodwork_dict = req.bloodwork.model_dump()
+        if any(v is not None for v in bloodwork_dict.values()):
+            add_lab_history(req.user_id, bloodwork_dict)
+
     return {
         "subtype": top_subtype,
         "label": SUBTYPE_LABELS[top_subtype],
         "confidence": confidence,
         "scores": scores,
         "missing_fields": unique_missing,
+        "drift_detected": drift_detected,
     }
 
 

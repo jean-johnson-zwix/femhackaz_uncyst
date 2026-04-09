@@ -27,6 +27,7 @@ class Bloodwork(BaseModel):
 class ClassifyRequest(BaseModel):
     symptoms: Symptoms
     bloodwork: Bloodwork
+    user_id: Optional[str] = None
 
 
 # Recommendation Engine

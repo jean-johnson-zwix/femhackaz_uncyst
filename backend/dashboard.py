@@ -28,6 +28,14 @@ SUBTYPE_INFO = {
 st.set_page_config(page_title="UnCyst — PCOS Classifier", page_icon="🩺", layout="centered")
 st.title("Client Onboarding")
 
+# ── User identity ──────────────────────────────────────────────────────────────
+if "user_id" not in st.session_state:
+    import uuid
+    st.session_state["user_id"] = str(uuid.uuid4())
+
+user_id = st.session_state["user_id"]
+st.caption(f"Session ID: `{user_id[:8]}…`")
+
 # ── Symptoms ──────────────────────────────────────────────────────────────────
 st.header("Symptoms")
 col1, col2 = st.columns(2)
@@ -106,6 +114,7 @@ if st.button("Classify", type="primary", use_container_width=True):
             field: parse_float(st.session_state[f"bw_{field}"])
             for field in BLOODWORK_LABELS
         },
+        "user_id": user_id,
     }
 
     try:
@@ -131,6 +140,9 @@ if st.button("Classify", type="primary", use_container_width=True):
     st.markdown(f"### {label}")
     st.markdown(f"**Confidence:** {CONFIDENCE_COLOR[conf]} {conf.capitalize()}")
     st.info(f"**Guidance:** {tip}")
+
+    if result.get("drift_detected"):
+        st.warning("Your subtype has shifted from a previous classification. Consider retesting your labs to confirm.")
 
     st.subheader("Subtype Score Breakdown")
     st.bar_chart(scores)
