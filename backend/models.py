@@ -30,6 +30,33 @@ class ClassifyRequest(BaseModel):
     user_id: Optional[str] = None
 
 
+# Onboarding
+
+DIAGNOSED_PCOS_VALUES = {"yes", "no", "unsure"}
+VALID_GOALS = {
+    "lose_weight",
+    "manage_symptoms",
+    "fertility",
+    "understand_labs",
+    "build_habits",
+}
+
+class OnboardingRequest(BaseModel):
+    user_id: str
+    name: Optional[str] = None
+    age: Optional[int] = None
+    diagnosed_pcos: Optional[str] = None   # 'yes' | 'no' | 'unsure'
+    goals: Optional[List[str]] = None      # subset of VALID_GOALS
+    cycle_length_days: Optional[int] = None
+    trying_to_conceive: Optional[bool] = None
+    physician_aware: Optional[bool] = None
+
+
+class OnboardingResponse(BaseModel):
+    user_id: str
+    profile: Dict[str, Any]
+
+
 # Recommendation Engine
 
 class RecommendRequest(BaseModel):

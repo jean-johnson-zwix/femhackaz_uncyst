@@ -4,6 +4,17 @@ import requests
 API_CLASSIFY  = "http://localhost:8000/classify"
 API_UPLOAD    = "http://localhost:8000/upload-report"
 API_RECOMMEND = "http://localhost:8000/recommend"
+API_ONBOARD   = "http://localhost:8000/onboard"
+API_USER      = "http://localhost:8000/user"
+API_USERS     = "http://localhost:8000/users"
+
+GOAL_OPTIONS = {
+    "lose_weight":      "Lose weight / reduce BMI",
+    "manage_symptoms":  "Manage symptoms (acne, hair, fatigue)",
+    "fertility":        "Improve fertility / track cycle",
+    "understand_labs":  "Understand my lab results",
+    "build_habits":     "Build consistent healthy habits",
+}
 
 BLOODWORK_LABELS = {
     "lh":              "LH (IU/L)",
@@ -26,15 +37,167 @@ SUBTYPE_INFO = {
 }
 
 st.set_page_config(page_title="UnCyst — PCOS Classifier", page_icon="🩺", layout="centered")
-st.title("Client Onboarding")
+st.title("UnCyst — PCOS Classifier")
 
-# ── User identity ──────────────────────────────────────────────────────────────
-if "user_id" not in st.session_state:
-    import uuid
-    st.session_state["user_id"] = str(uuid.uuid4())
+# ═══════════════════════════════════════════════════════════════════════════════
+# FLOW GATE — nothing below renders until the user is identified
+# ═══════════════════════════════════════════════════════════════════════════════
 
+def _reset_session():
+    for key in ["flow", "user_id", "profile", "profile_saved"]:
+        st.session_state.pop(key, None)
+
+
+# Step 1 — choose flow
+if "flow" not in st.session_state:
+    st.subheader("Welcome! Are you a new or returning user?")
+    col_new, col_ret = st.columns(2)
+    with col_new:
+        if st.button("I'm new here", use_container_width=True, type="primary"):
+            import uuid
+            st.session_state["flow"] = "new"
+            st.session_state["user_id"] = str(uuid.uuid4())
+            st.session_state["profile_saved"] = False
+            st.rerun()
+    with col_ret:
+        if st.button("I have an account", use_container_width=True):
+            st.session_state["flow"] = "returning"
+            st.rerun()
+    st.stop()
+
+
+# Step 2a — returning user: pick from dropdown
+if st.session_state["flow"] == "returning" and "profile" not in st.session_state:
+    st.subheader("Welcome back!")
+
+    all_users = []
+    try:
+        r = requests.get(API_USERS, timeout=10)
+        r.raise_for_status()
+        all_users = r.json().get("users", [])
+    except requests.exceptions.ConnectionError:
+        st.error("Cannot reach the backend.")
+        if st.button("Back"):
+            _reset_session()
+            st.rerun()
+        st.stop()
+    except Exception as e:
+        st.error(f"Failed to load users: {e}")
+
+    if not all_users:
+        st.info("No existing accounts found. Start as a new user instead.")
+        if st.button("Back", use_container_width=True):
+            _reset_session()
+            st.rerun()
+        st.stop()
+
+    def _user_label(u: dict) -> str:
+        name = u.get("name") or "Unnamed"
+        short_id = u["user_id"][:8]
+        date = u.get("onboarding_date", "")[:10]
+        return f"{name}  ({short_id}…  joined {date})"
+
+    options = [None] + all_users
+    selected = st.selectbox(
+        "Select your account",
+        options=options,
+        format_func=lambda u: "Select a user…" if u is None else _user_label(u),
+    )
+
+    col_load, col_back = st.columns([3, 1])
+    with col_load:
+        if st.button("Load my profile", use_container_width=True, type="primary"):
+            if selected is None:
+                st.error("Please select an account.")
+            else:
+                try:
+                    r = requests.get(f"{API_USER}/{selected['user_id']}", timeout=10)
+                    r.raise_for_status()
+                    st.session_state["user_id"] = selected["user_id"]
+                    st.session_state["profile"] = r.json().get("profile", {})
+                    st.session_state["profile_saved"] = True
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Failed to load profile: {e}")
+    with col_back:
+        if st.button("Back", use_container_width=True):
+            _reset_session()
+            st.rerun()
+    st.stop()
+
+
+# Step 2b — new user: show onboarding form
+if st.session_state["flow"] == "new" and not st.session_state.get("profile_saved"):
+    st.subheader("Tell us about yourself")
+    st.caption(f"Your Session ID: `{st.session_state['user_id']}` — save this to return later.")
+
+    p_name = st.text_input("Name (optional)", placeholder="e.g. Alex")
+    p_age  = st.number_input("Age", min_value=10, max_value=80, value=None, placeholder="Enter your age")
+    p_diagnosed = st.selectbox(
+        "Have you been diagnosed with PCOS?",
+        options=["", "yes", "no", "unsure"],
+        format_func=lambda x: {"": "Select…", "yes": "Yes", "no": "No", "unsure": "Not sure"}[x],
+    )
+    p_goals = st.multiselect(
+        "What are your goals?",
+        options=list(GOAL_OPTIONS.keys()),
+        format_func=lambda k: GOAL_OPTIONS[k],
+    )
+    col_a, col_b = st.columns(2)
+    with col_a:
+        p_cycle = st.number_input("Typical cycle length (days)", min_value=14, max_value=90, value=None, placeholder="e.g. 28")
+    with col_b:
+        p_ttc = st.checkbox("Trying to conceive")
+    p_physician = st.checkbox("I am working with a physician or OB/GYN")
+
+    col_save, col_skip = st.columns([3, 1])
+    with col_save:
+        if st.button("Save & Continue", use_container_width=True, type="primary"):
+            onboard_payload = {
+                "user_id":            st.session_state["user_id"],
+                "name":               p_name or None,
+                "age":                int(p_age) if p_age else None,
+                "diagnosed_pcos":     p_diagnosed or None,
+                "goals":              p_goals or None,
+                "cycle_length_days":  int(p_cycle) if p_cycle else None,
+                "trying_to_conceive": p_ttc,
+                "physician_aware":    p_physician,
+            }
+            try:
+                r = requests.post(API_ONBOARD, json=onboard_payload, timeout=10)
+                r.raise_for_status()
+                st.session_state["profile_saved"] = True
+                st.session_state["profile"] = r.json().get("profile", {})
+                st.rerun()
+            except requests.exceptions.ConnectionError:
+                st.error("Cannot reach the backend.")
+            except Exception as e:
+                st.error(f"Failed to save profile: {e}")
+    with col_skip:
+        if st.button("Skip", use_container_width=True):
+            st.session_state["profile_saved"] = True
+            st.session_state["profile"] = {}
+            st.rerun()
+    st.stop()
+
+
+# ── Identified — show header bar ──────────────────────────────────────────────
 user_id = st.session_state["user_id"]
-st.caption(f"Session ID: `{user_id[:8]}…`")
+prof    = st.session_state.get("profile", {})
+
+name_part = f", {prof['name']}" if prof.get("name") else ""
+st.subheader(f"Welcome{name_part}!")
+st.caption(f"Session ID: `{user_id}` — save this to return later.")
+
+if prof.get("goals"):
+    goals_display = " · ".join(GOAL_OPTIONS.get(g, g) for g in prof["goals"])
+    st.caption(f"Your goals: {goals_display}")
+
+if st.button("Switch account", use_container_width=False):
+    _reset_session()
+    st.rerun()
+
+st.divider()
 
 # ── Symptoms ──────────────────────────────────────────────────────────────────
 st.header("Symptoms")

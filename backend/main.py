@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from models import ClassifyRequest, RecommendRequest, RecommendResponse
+from models import ClassifyRequest, RecommendRequest, RecommendResponse, OnboardingRequest, OnboardingResponse, DIAGNOSED_PCOS_VALUES, VALID_GOALS
 from constants import SUBTYPE_LABELS
 from typing import Optional
 from dotenv import load_dotenv
@@ -197,6 +197,58 @@ async def upload_report(file: UploadFile = File(...)):
         "fields_found": list(found.keys()),
         "fields_missing": missing,
     }
+
+
+@app.post("/onboard", response_model=OnboardingResponse)
+def onboard(req: OnboardingRequest):
+    errors = []
+
+    if req.diagnosed_pcos is not None and req.diagnosed_pcos not in DIAGNOSED_PCOS_VALUES:
+        errors.append(f"diagnosed_pcos must be one of: {sorted(DIAGNOSED_PCOS_VALUES)}")
+
+    if req.goals is not None:
+        invalid = [g for g in req.goals if g not in VALID_GOALS]
+        if invalid:
+            errors.append(f"Invalid goals: {invalid}. Valid options: {sorted(VALID_GOALS)}")
+
+    if req.age is not None and not (10 <= req.age <= 120):
+        errors.append("age must be between 10 and 120")
+
+    if req.cycle_length_days is not None and not (14 <= req.cycle_length_days <= 90):
+        errors.append("cycle_length_days must be between 14 and 90")
+
+    if errors:
+        raise HTTPException(status_code=422, detail=errors)
+
+    from data.db import upsert_profile, get_user
+    upsert_profile(
+        user_id=req.user_id,
+        name=req.name,
+        age=req.age,
+        diagnosed_pcos=req.diagnosed_pcos,
+        goals=req.goals,
+        cycle_length_days=req.cycle_length_days,
+        trying_to_conceive=req.trying_to_conceive,
+        physician_aware=req.physician_aware,
+    )
+
+    profile = get_user(req.user_id)
+    return OnboardingResponse(user_id=req.user_id, profile=profile)
+
+
+@app.get("/users")
+def list_all_users():
+    from data.db import list_users
+    return {"users": list_users()}
+
+
+@app.get("/user/{user_id}", response_model=OnboardingResponse)
+def get_user_profile(user_id: str):
+    from data.db import get_user
+    profile = get_user(user_id)
+    if not profile:
+        raise HTTPException(status_code=404, detail="User not found")
+    return OnboardingResponse(user_id=user_id, profile=profile)
 
 
 @app.post("/recommend", response_model=RecommendResponse)

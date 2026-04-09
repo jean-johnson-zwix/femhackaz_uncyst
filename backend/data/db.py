@@ -69,6 +69,23 @@ CREATE TABLE IF NOT EXISTS xp_ledger (
 def init_db() -> None:
     with sqlite3.connect(DB_PATH) as conn:
         conn.executescript(SCHEMA)
+        # Migrate existing tables: add columns added after initial creation.
+        # SQLite has no ALTER TABLE ADD COLUMN IF NOT EXISTS, so we catch the
+        # OperationalError raised when the column already exists.
+        migrations = [
+            "ALTER TABLE users ADD COLUMN name               TEXT",
+            "ALTER TABLE users ADD COLUMN age                INTEGER",
+            "ALTER TABLE users ADD COLUMN diagnosed_pcos     TEXT",
+            "ALTER TABLE users ADD COLUMN goals              TEXT",
+            "ALTER TABLE users ADD COLUMN cycle_length_days  INTEGER",
+            "ALTER TABLE users ADD COLUMN trying_to_conceive INTEGER",
+            "ALTER TABLE users ADD COLUMN physician_aware    INTEGER",
+        ]
+        for stmt in migrations:
+            try:
+                conn.execute(stmt)
+            except sqlite3.OperationalError:
+                pass  # column already exists
         conn.commit()
 
 
@@ -112,6 +129,15 @@ def get_user(user_id: str) -> Optional[dict]:
     if d.get("goals"):
         d["goals"] = json.loads(d["goals"])
     return d
+
+
+def list_users() -> list[dict]:
+    """Return all users with id, name, onboarding_date for the selection dropdown."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT user_id, name, onboarding_date FROM users ORDER BY onboarding_date DESC"
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def upsert_profile(
