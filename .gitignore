@@ -1,0 +1,4 @@
+backend/__pycache__
+backend/*/__pycache__/*
+backend/intelligence/__pycache__/*
+backend/.env
